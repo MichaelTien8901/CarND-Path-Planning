@@ -16,7 +16,7 @@ constexpr double MPH_to_MPS(double x) { return x * 0.44074; }
 #define MIN_LANE_NO 0
 float LANE_WIDTH = 4.0; 
 float  MAX_S = 6945.554;  
-float MAX_S_TOLERANCE = 200;
+float MAX_SENSOR_RANGE = 200;
 float SPEED_LIMIT = MPH_to_MPS(50.0);
 float ACCELERATION_LIMIT = MPH_to_MPS(10.0);
 
@@ -33,7 +33,7 @@ void Vehicle::updateData( float x, float y, float vx, float vy, float s, float d
 Vehicle::Vehicle(int id, float x, float y, float vx, float vy, float s, float d)
 {
   this->id = id;
-  updateData(x, y, MPH_to_MPS(vx), MPH_to_MPS(vy), s, d);
+  updateData(x, y, vx, vy, s, d);
 }
 Vehicle::Vehicle()
 {
@@ -73,7 +73,7 @@ void PathPlanner::updateFusionSensor(vector<vector<float>> &sensor_fusion)
 	  float s = sensor_fusion[i][5];
 	  float d = sensor_fusion[i][6];
 	  Vehicle car(id, x, y, vx, vy, s, d);
-	  car.speed = MPH_to_MPS(sqrt(vx*vx + vy*vy));
+	  car.speed = (sqrt(vx*vx + vy*vy));
 	  vehicle_list.push_back(car);
 	}    
 }
@@ -125,6 +125,7 @@ void PathPlanner::generate_trajectory( int target_lane,
 {
 	extern vector<double> getXY(double s, double d, vector<double> maps_s, vector<double> maps_x, vector<double> maps_y);
 	float car_s = ego.s;
+	// cout << "ref_vel-ego.speed: " << ref_vel - ego.speed << endl;
 	int prev_size = previous_path_x.size();   
 	if ( prev_size > 0 )
 	{
@@ -256,8 +257,8 @@ int PathPlanner::in_front_of(float s, int lane) {
 	for (int i = 0; i < vehicle_list.size(); i ++) {
 	    Vehicle car = vehicle_list[i];
 	    float  car_s = car.s;
-	    if ( s >= (MAX_S-MAX_S_TOLERANCE) && ( car_s < MAX_S_TOLERANCE))
-	       car_s += MAX_S_TOLERANCE;
+	    if ( s >= (MAX_S-MAX_SENSOR_RANGE) && ( car_s < MAX_SENSOR_RANGE))
+	       car_s += MAX_S;
 
 	    if (( lane == car.lane)  && ( s < car_s )) {
 	        float distance =  car_s - s;
@@ -276,8 +277,8 @@ int PathPlanner::behind_of(float s, int lane)
 	for (int i = 0; i < vehicle_list.size(); i ++) {
 	    Vehicle car = vehicle_list[i];
 	    float  car_s = car.s;
-	    if ( s >= (MAX_S-MAX_S_TOLERANCE) && (car_s < MAX_S_TOLERANCE))
-	       car_s += MAX_S_TOLERANCE;
+	    if ( s >= (MAX_S-MAX_SENSOR_RANGE) && (car_s < MAX_SENSOR_RANGE))
+	       car_s += MAX_S;
 
 	    if (( lane == car.lane)  && ( s > car_s)) {
 	        float distance = s - car_s;
@@ -302,40 +303,52 @@ double PathPlanner::speed_cost(double v)
 		v_cost = 1;
 	else
 		v_cost = (v - pref_target_speed) / preferred_buffer;
-	return v_cost;
+	return v_cost * 1.5;
 }
 double PathPlanner::lane_speed_cost(int lane, float s, float v)
 {
 	int front_car_index = in_front_of(s, lane );
-    int behind_car_index = behind_of(s, lane);
-    if (( front_car_index == -1) && (behind_car_index == -1))
-    	return 0;
-    else if ( front_car_index == -1) { // no front car
-    	float distance = s - vehicle_list[behind_car_index].s;
-    	if (distance < 0)
-    		distance += MAX_S;
-    	if ( distance > 44) // 2 second
-    		return 0;
-    	else
-    		return speed_cost(vehicle_list[behind_car_index].speed);
-    } else if ( behind_car_index == -1) { // no behind car
+	if ( front_car_index != -1) {
     	float distance = vehicle_list[front_car_index].s-s;
     	if (distance < 0)
     		distance += MAX_S;
-    	if ( distance > 44) // 2 second
+    	if ( distance > 150) // 2 second
     		return 0;
     	else
     		return speed_cost(vehicle_list[front_car_index].speed);
-    } else { 
-    	// check gap
-    	float distance = vehicle_list[front_car_index].s - vehicle_list[behind_car_index].s;
-    	if (distance < 0)
-    		distance += MAX_S;
-    	if ( distance < 22) // safe distance
-    		return 9999;
-    	else
-    		return speed_cost(vehicle_list[behind_car_index].speed);
-    }
+    } else 
+       return 0;
+    // int behind_car_index = behind_of(s, lane);
+    // if (( front_car_index == -1) && (behind_car_index == -1))
+    // 	return 0;
+    // else 
+    // if ( front_car_index == -1) { // no front car
+    // 	float distance = s - vehicle_list[behind_car_index].s;
+    // 	if (distance < 0)
+    // 		distance += MAX_S;
+    // 	if ( distance > 44) // 2 second
+    // 		return 0;
+    // 	else
+    // 		return speed_cost(vehicle_list[behind_car_index].speed);
+    // } 
+    // else if ( behind_car_index == -1) { // no behind car
+    // 	float distance = vehicle_list[front_car_index].s-s;
+    // 	if (distance < 0)
+    // 		distance += MAX_S;
+    // 	if ( distance > 44) // 2 second
+    // 		return 0;
+    // 	else
+    // 		return speed_cost(vehicle_list[front_car_index].speed);
+    // } else { 
+    // 	// check gap
+    // 	float distance = vehicle_list[front_car_index].s - vehicle_list[behind_car_index].s;
+    // 	if (distance < 0)
+    // 		distance += MAX_S;
+    // 	if ( distance < 22) // safe distance
+    // 		return 9999;
+    // 	else
+    // 		return speed_cost(vehicle_list[behind_car_index].speed);
+    // }
 }
 double PathPlanner::distance_cost(int lane, float s)
 {
@@ -345,8 +358,9 @@ double PathPlanner::distance_cost(int lane, float s)
 	float distance = vehicle_list[car_index].s - s;
 	if ( distance < 0)
 		distance += MAX_S;
-
-	double d_cost = 1 - exp(-10.0 / distance);
+	if ( distance < 25)
+		return 1.0;
+	double d_cost = 1 - exp(-30.0 / distance);
 	return d_cost;
 }
 bool PathPlanner::collide_prediction(int lane, float s, float speed)
@@ -372,30 +386,30 @@ double PathPlanner::cost_default(void)
 }
 double PathPlanner::cost_kl(void)
 {
-   return speed_cost(ego.speed) + distance_cost(target_lane, ego.s);
+   return lane_speed_cost(target_lane, ego.s, ego.speed) + distance_cost(target_lane, ego.s);
 }
 double PathPlanner::cost_kl_plcl(void)
 {
     if (target_lane == MIN_LANE_NO)
        return 9999; 
-    return distance_cost(target_lane - 1, ego.s) + lane_speed_cost(target_lane - 1, ego.s, ego.speed);
+    return 0.001+ distance_cost(target_lane - 1, ego.s) + lane_speed_cost(target_lane - 1, ego.s, ego.speed);
 }
 double PathPlanner::cost_kl_plcr(void)
 {
     if (target_lane == MAX_LANE_NO)
        return 9999; 
-    return distance_cost(target_lane + 1, ego.s) + lane_speed_cost(target_lane + 1, ego.s, ego.speed);
+    return 0.001+distance_cost(target_lane + 1, ego.s) + lane_speed_cost(target_lane + 1, ego.s, ego.speed);
 }
 double PathPlanner::cost_plcl(void)
 {
-    return distance_cost(target_lane - 1, ego.s) + lane_speed_cost(target_lane - 1, ego.s, ego.speed);
+    return 0.001+distance_cost(target_lane - 1, ego.s) + lane_speed_cost(target_lane - 1, ego.s, ego.speed);
 }
 double PathPlanner::cost_plcl_lcl(void)
 {
 // check safety cost
 	double cost = 0;
 	if (collide_prediction(target_lane-1, ego.s, ego.speed)) {
-	  cout << "collide	predict: speed" << ego.speed << endl;
+	  // cout << "collide	predict: speed" << ego.speed << endl;
 	  cost = 9999;
 	}
 	return cost;
@@ -411,12 +425,12 @@ double PathPlanner::cost_plcr_kl(void)
 
 double PathPlanner::cost_plcr(void)
 {
-    return distance_cost(target_lane + 1, ego.s) + lane_speed_cost(target_lane + 1, ego.s, ego.speed);
+    return 0.001+distance_cost(target_lane + 1, ego.s) + lane_speed_cost(target_lane + 1, ego.s, ego.speed);
 }
 double PathPlanner::cost_plcr_lcr(void)
 {
 	if (collide_prediction(target_lane+ 1, ego.s, ego.speed)) {
-	  cout << "collide	predict: speed" << ego.speed << endl;
+	  // cout << "collide	predict: speed" << ego.speed << endl;
 	  return 9999;
 	}
 	return 0;
@@ -431,34 +445,34 @@ double PathPlanner::cost_plcr_lcr(void)
 // }
 std::map<STATE_PATH_PLANNING, vector<NextStateFunc>> next_state_table = {
   { STATE_START,
-    { { STATE_KEEP_LANE, &PathPlanner::cost_default },
+    { { STATE_KEEP_LANE, &PathPlanner::cost_default , 1},
     }
   },
   { STATE_KEEP_LANE,
-     { { STATE_KEEP_LANE, &PathPlanner::cost_kl },
-     { STATE_PREPARE_LANE_CHANGE_LEFT, &PathPlanner::cost_kl_plcl },
-     { STATE_PREPARE_LANE_CHANGE_RIGHT, &PathPlanner::cost_kl_plcr },
+     { { STATE_KEEP_LANE, &PathPlanner::cost_kl, 1.},
+     { STATE_PREPARE_LANE_CHANGE_LEFT, &PathPlanner::cost_kl_plcl, 1.0 },
+     { STATE_PREPARE_LANE_CHANGE_RIGHT, &PathPlanner::cost_kl_plcr, 1.0 },
      }
   },
   { STATE_PREPARE_LANE_CHANGE_LEFT,
-     { { STATE_PREPARE_LANE_CHANGE_LEFT, &PathPlanner::cost_plcl },
-     { STATE_LANE_CHANGE_LEFT, &PathPlanner::cost_plcl_lcl },
-     { STATE_KEEP_LANE, &PathPlanner::cost_plcl_kl },
+     { { STATE_PREPARE_LANE_CHANGE_LEFT, &PathPlanner::cost_plcl, 1. },
+     { STATE_LANE_CHANGE_LEFT, &PathPlanner::cost_plcl_lcl, 1. },
+     { STATE_KEEP_LANE, &PathPlanner::cost_plcl_kl, 1.05 },
      } 
   },
   { STATE_LANE_CHANGE_LEFT,
-     { { STATE_KEEP_LANE, &PathPlanner::cost_kl },
+     { { STATE_KEEP_LANE, &PathPlanner::cost_kl, 1. },
        // { STATE_LANE_CHANGE_LEFT, &PathPlanner::cost_lcl} // in transition
      } 
   },
   { STATE_PREPARE_LANE_CHANGE_RIGHT,
-     { {STATE_PREPARE_LANE_CHANGE_RIGHT, &PathPlanner::cost_plcr },
-     {STATE_LANE_CHANGE_RIGHT, &PathPlanner::cost_plcr_lcr },
-     { STATE_KEEP_LANE, &PathPlanner::cost_plcr_kl },
+     { {STATE_PREPARE_LANE_CHANGE_RIGHT, &PathPlanner::cost_plcr, 1. },
+       {STATE_LANE_CHANGE_RIGHT, &PathPlanner::cost_plcr_lcr, 1. },
+     { STATE_KEEP_LANE, &PathPlanner::cost_plcr_kl, 1.0 },
      } 
   },
   { STATE_LANE_CHANGE_RIGHT,
-    { { STATE_KEEP_LANE, &PathPlanner::cost_kl },
+    { { STATE_KEEP_LANE, &PathPlanner::cost_kl, 1 },
        // { STATE_LANE_CHANGE_RIGHT, &PathPlanner::cost_lcr} // in transition
     }
   }
@@ -478,8 +492,8 @@ void PathPlanner::updateState(void)
   for (int i = 0; i < next_state_list.size(); i++) {
     cost_function costf = next_state_list[i].func;
 //    double score = std::invoke( costf, this, predictions); // call member function
-    double score = (this->*costf)();
-    //cout << " state, score: " << next_state_list[i].state << ", " << score << endl;
+    double score = (this->*costf)() * next_state_list[i].weight;
+    cout << " state, score: " << next_state_list[i].state << ", " << score << endl;
     if (score < min_cost) {
       min_cost = score;
       min_index = i;

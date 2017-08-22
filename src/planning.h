@@ -33,6 +33,7 @@ typedef double (PathPlanner::*cost_function)(void);
 typedef struct {
    STATE_PATH_PLANNING state;
    cost_function func;
+   double weight;
 } NextStateFunc;
 
 class PathPlanner {
