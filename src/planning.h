@@ -45,10 +45,15 @@ public:
   int target_lane = -1;
   double ref_vel = 0.0;
   const float L = 10; 
+  const double MAX_REF_VELOCITY = 22.05;
+  const double SIM_DELTA_T = 0.02;
+  const double HORIZON_X = 30;
+
   float target_speed;
   float preferred_buffer = 0.8; 
   vector<double> previous_path_x;
   vector<double> previous_path_y;
+  chrono::high_resolution_clock::time_point next_time_count;
   double end_s;
   double end_d;
   void updateFusionSensor(vector<vector<float>> &sensor_fusion);
@@ -79,7 +84,8 @@ private:
   double distance_cost(int lane, float s);
   double lane_speed_cost(int lane, float s, float v);
   bool collide_prediction(int lane, float s, float speed);
-  void generate_trajectory( int target_lane,
+  void generate_trajectory( int target_lane, int current_lane,
           vector<double> &map_waypoints_x, vector<double> &map_waypoints_y, vector<double> &map_waypoints_s,
           vector<double> &next_x_vals, vector<double> &next_y_vals);
+
 };

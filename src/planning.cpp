@@ -1,4 +1,5 @@
 #include <vector>
+#include <chrono>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "Eigen-3.3/Eigen/LU"
@@ -19,7 +20,27 @@ float  MAX_S = 6945.554;
 float MAX_SENSOR_RANGE = 200;
 float SPEED_LIMIT = MPH_to_MPS(50.0);
 float ACCELERATION_LIMIT = MPH_to_MPS(10.0);
-
+/**
+ * the distance is s2-s1 
+ * 
+ */
+double s_distance(double s_location, double s2) 
+{
+	double sd = s2-s_location;
+	if ( sd > (MAX_S / 2))
+		return sd - MAX_S;
+	else
+	if ( sd < -(MAX_S / 2))
+		return sd + MAX_S;
+	return sd;
+  // if ((s_location > (MAX_S-MAX_SENSOR_RANGE)) && (s2 < MAX_SENSOR_RANGE)) {
+  // 	 s2 += MAX_S;
+  // } else 
+  // if ((s2 > (MAX_S-MAX_SENSOR_RANGE)) && (s_location < MAX_SENSOR_RANGE)){
+  //    s_location += MAX_S;
+  // }
+  // return (s2-s_location);
+}
 void Vehicle::updateData( float x, float y, float vx, float vy, float s, float d)
 {
   this->x = x;
@@ -59,6 +80,7 @@ PathPlanner::PathPlanner()
 {
 	target_speed = SPEED_LIMIT;
 	preferred_buffer = MPH_to_MPS(0.8);
+	next_time_count = chrono::high_resolution_clock::now();
 }
 
 void PathPlanner::updateFusionSensor(vector<vector<float>> &sensor_fusion)
@@ -98,14 +120,14 @@ void PathPlanner::realizeState(
 		case STATE_LANE_CHANGE_LEFT:		   
 		   if ( prev_state == STATE_PREPARE_LANE_CHANGE_LEFT)
 			   target_lane -= 1;
-		   generate_trajectory(target_lane,
+		   generate_trajectory(target_lane, ego.lane,
 		   	   map_waypoints_x, map_waypoints_y, map_waypoints_s,
  		   	   next_x_vals, next_y_vals);
 		   break;
 		case STATE_LANE_CHANGE_RIGHT:
 		   if ( prev_state == STATE_PREPARE_LANE_CHANGE_RIGHT)
 			   target_lane += 1;
-		   generate_trajectory(target_lane,
+		   generate_trajectory(target_lane, ego.lane,
 		   	   map_waypoints_x, map_waypoints_y, map_waypoints_s,
   		   	   next_x_vals, next_y_vals);
 		   break;
@@ -113,13 +135,13 @@ void PathPlanner::realizeState(
 		   if ( prev_state == STATE_START)
 		   	   target_lane = ego.lane;
 		default:		   
-		   generate_trajectory(target_lane,
+		   generate_trajectory(target_lane, ego.lane,
 		   	   map_waypoints_x, map_waypoints_y, map_waypoints_s,
    		   	   next_x_vals, next_y_vals);
 		   break;
 	}
 }
-void PathPlanner::generate_trajectory( int target_lane,
+void PathPlanner::generate_trajectory( int target_lane, int current_lane,
    vector<double> &map_waypoints_x, vector<double> &map_waypoints_y, vector<double> &map_waypoints_s,
    vector<double> &next_x_vals, vector<double> &next_y_vals)
 {
@@ -132,29 +154,51 @@ void PathPlanner::generate_trajectory( int target_lane,
 	  car_s = end_s;
 	} 
 	bool too_close = false;
-	int car_index = in_front_of(car_s, target_lane);
+	int car_index = in_front_of(ego.s, target_lane); 
 	if ( car_index != -1) {
 		Vehicle front_car = vehicle_list[car_index];
-	    double check_car_s = front_car.s + prev_size * 0.02 * front_car.speed;
-	    if ((check_car_s > car_s) && ((check_car_s - car_s) < 22))
+	    double check_car_s = front_car.s + prev_size * SIM_DELTA_T * front_car.speed;
+	    if ( s_distance(car_s, check_car_s) < 22) {
 	    	too_close = true;
+		    cout << "too close" << endl;
+	    	cout << "car s, speed=" << front_car.s << setw(10) 
+	    	<< front_car.speed << setw(10) 
+	    	<< front_car.s << setw(10)
+	    	<< front_car.d << setw(10) << endl;
+	    }
+	}
+	if (target_lane != current_lane) {
+		car_index = in_front_of(ego.s, current_lane);
+		if ( car_index != -1) {
+			Vehicle front_car = vehicle_list[car_index];
+		    double check_car_s = front_car.s + prev_size * SIM_DELTA_T * front_car.speed;
+		    if ( s_distance(car_s, check_car_s) < 22) {
+		    	too_close = true;
+			    cout << "too close" << endl;
+		    	cout << "car s, speed=" << front_car.s << setw(10) 
+		    	<< front_car.speed << setw(10) 
+		    	<< front_car.s << setw(10)
+		    	<< front_car.d << setw(10) << endl;
+		    }
+		}
 	}
 	//double ref_vel = ego.speed;
 	// cout << "ref_vel: " << ref_vel << endl;
 	if ( too_close)
 	{
-		// cout << "too close" << endl;
+
 	  if ( ref_vel > .1)
 	     ref_vel -= .1;
 	  else
-	    ref_vel = 0;
+	    ref_vel = 0.005;
 	} 
 	else {
-		if ( ref_vel < 22.21) {
+		if ( ref_vel < MAX_REF_VELOCITY) { // 49.3 MPH
 //	  ref_vel += .1;
-	  		ref_vel += (22.21-ref_vel) * 0.0072;
-	  	} else
-	  	   ref_vel = 22.21;
+	  		ref_vel += (MAX_REF_VELOCITY-ref_vel) * 0.0072;
+	  	} 
+	  	if ( ref_vel > MAX_REF_VELOCITY)
+	  	   ref_vel = MAX_REF_VELOCITY;
 	} 
 	vector<double> ptsx;
 	vector<double> ptsy;
@@ -167,8 +211,8 @@ void PathPlanner::generate_trajectory( int target_lane,
 	if(prev_size < 2)
 	{
 	    //create two points defining a path tangent to the car
-	    double prev_car_x = ego.x - cos(ego.yaw);
-	    double prev_car_y = ego.y - sin(ego.yaw);
+	    double prev_car_x = ego.x - cos(ref_yaw);
+	    double prev_car_y = ego.y - sin(ref_yaw);
 
 	    ptsx.push_back(prev_car_x);
 	    ptsx.push_back(ego.x);
@@ -184,7 +228,7 @@ void PathPlanner::generate_trajectory( int target_lane,
 
 	    double ref_x_prev = previous_path_x[prev_size-2];
 	    double ref_y_prev = previous_path_y[prev_size-2];
-	    ref_yaw = atan2(ref_y-ref_y_prev, ref_x-ref_x_prev);
+//	    ref_yaw = atan2(ref_y-ref_y_prev, ref_x-ref_x_prev);
 
 	    ptsx.push_back(ref_x_prev);
 	    ptsx.push_back(ref_x);
@@ -204,6 +248,14 @@ void PathPlanner::generate_trajectory( int target_lane,
 	ptsy.push_back(next_wp1[1]);
 	ptsy.push_back(next_wp2[1]);
 
+    // use first and last point as reference yaw
+    ref_yaw = atan2(ptsy[4]-ptsy[0], ptsx[4]-ptsx[0]);
+
+	// cout << "ptsx before = ";
+	// for (int i = 0; i < ptsx.size(); i++)
+	// 	cout << ptsx[i] << setw(10) << ptsy[i] << setw(10) << endl;
+
+	// convert to car coordinate.  
 	for (int i=0; i<ptsx.size(); i++)
 	{
 	    double shift_x = ptsx[i]-ref_x;
@@ -218,23 +270,39 @@ void PathPlanner::generate_trajectory( int target_lane,
 	    next_x_vals.push_back(previous_path_x[i]);
 	    next_y_vals.push_back(previous_path_y[i]);
 	}
+	// check ptsx
+	// cout << "ptsx = ";
+	// for (int i = 0; i < ptsx.size(); i++)
+	// 	cout << ptsx[i] << setw(10) << ptsy[i] << setw(10) << endl;
 
 	//create spline for smooth path
 	tk::spline s;
 	s.set_points(ptsx,ptsy);
 
 	//calculate remaining points for path planner based on spline
-	double target_x = 30.0;
+
+	double target_x = HORIZON_X; // Horizen x
 	double target_y = s(target_x);
 	double target_dist = sqrt(target_x*target_x + target_y*target_y);
 
-	double N = target_dist/(.02*ref_vel);
+	double N = target_dist/(SIM_DELTA_T*ref_vel);
 	double dx = target_x / N;
 // cout << "N, dx= " << N << "," << dx << endl;
+	double prev_x = 0;
+	double prev_y = s(prev_x);
 	for(int i = 1; i <= 50-prev_size; i++) {
-	    double x_point = dx * i;
+		extern double distance(double x1, double y1, double x2, double y2);
+	    double x_point = prev_x + dx;
 	    double y_point = s(x_point);
-
+	    // test speed
+	    double segment_speed = distance(prev_x, prev_y, x_point, y_point) / SIM_DELTA_T;
+	    if ( segment_speed > MAX_REF_VELOCITY) {
+	    	// correction
+	      x_point = prev_x + dx * MAX_REF_VELOCITY / segment_speed;
+	      y_point = s(x_point);;
+	    }
+	    prev_x = x_point;
+	    prev_y = y_point;
 	    double x_ref = x_point;
 	    double y_ref = y_point;
 
@@ -253,15 +321,20 @@ void PathPlanner::generate_trajectory( int target_lane,
 int PathPlanner::in_front_of(float s, int lane) {
 
   	float index = -1;
-	float min_distance = 9999;
+	double min_distance = 9999;
 	for (int i = 0; i < vehicle_list.size(); i ++) {
 	    Vehicle car = vehicle_list[i];
 	    float  car_s = car.s;
-	    if ( s >= (MAX_S-MAX_SENSOR_RANGE) && ( car_s < MAX_SENSOR_RANGE))
-	       car_s += MAX_S;
+        double distance = s_distance(s, car_s);
+        double d_min = lane * LANE_WIDTH;
+        double d_max = d_min + LANE_WIDTH;
+        // if ( lane != 0)
+        // 	d_min -= 1.5;
+        // double d_max = (lane+1)*LANE_WIDTH+1.5;
 
-	    if (( lane == car.lane)  && ( s < car_s )) {
-	        float distance =  car_s - s;
+	    if (( car.d > d_min ) && (car.d < d_max) && 
+	    	( distance > 0)) 
+	    {
 	        if ( distance < min_distance) {
 	          min_distance = distance;
 	          index = i;
@@ -277,11 +350,15 @@ int PathPlanner::behind_of(float s, int lane)
 	for (int i = 0; i < vehicle_list.size(); i ++) {
 	    Vehicle car = vehicle_list[i];
 	    float  car_s = car.s;
-	    if ( s >= (MAX_S-MAX_SENSOR_RANGE) && (car_s < MAX_SENSOR_RANGE))
-	       car_s += MAX_S;
+	    double distance = s_distance(s, car_s);
+        double d_min = lane * LANE_WIDTH;
+        if ( lane != 0)
+        	d_min -= 1.5;
+        double d_max = (lane+1)*LANE_WIDTH+1.5;
 
-	    if (( lane == car.lane)  && ( s > car_s)) {
-	        float distance = s - car_s;
+	    if (( car.d > d_min ) && (car.d < d_max) && 
+	    	( distance < 0)) 
+	    {
 	        if ( distance < min_distance) {
 	          min_distance = distance;
 	          index = i;
@@ -309,10 +386,9 @@ double PathPlanner::lane_speed_cost(int lane, float s, float v)
 {
 	int front_car_index = in_front_of(s, lane );
 	if ( front_car_index != -1) {
-    	float distance = vehicle_list[front_car_index].s-s;
-    	if (distance < 0)
-    		distance += MAX_S;
-    	if ( distance > 150) // 2 second
+    	float distance = s_distance(s, vehicle_list[front_car_index].s);
+    	// distance always > 0 
+    	if (distance > 150) // 2 second
     		return 0;
     	else
     		return speed_cost(vehicle_list[front_car_index].speed);
@@ -355,26 +431,41 @@ double PathPlanner::distance_cost(int lane, float s)
 	int car_index = in_front_of(s, lane);
 	if ( car_index == -1) // no car in front of
 		return 0; 
-	float distance = vehicle_list[car_index].s - s;
-	if ( distance < 0)
-		distance += MAX_S;
+	float distance = s_distance(s, vehicle_list[car_index].s);
 	if ( distance < 25)
-		return 1.0;
+		return 2.0;
 	double d_cost = 1 - exp(-30.0 / distance);
 	return d_cost;
 }
 bool PathPlanner::collide_prediction(int lane, float s, float speed)
 {
+	const int COLLIDE_LENGTH = 20;
+	const int PREDICTION_NO = 300; // 0.02 * 300 = 6 second
 	for (int i = 0; i < vehicle_list.size(); i ++) {
 		Vehicle car = vehicle_list[i];
-		if ( car.lane == lane) {
-			float delta_t = 0.02;
-			for ( int k = 0; k < 150; k ++) {
-				float  car_s = car.s + car.speed * delta_t * i;
-				float ego_s = s + ref_vel * delta_t * i;
-				if ( fabs( car_s - ego_s ) < L)
-				   return true;
-			}
+		double d_min = lane * LANE_WIDTH;
+		double d_max = d_min + LANE_WIDTH;
+		if ( lane != 0)
+			d_min -= 1.5;
+		d_max += 1.5;
+		if (( car.d > d_min) && (car.d < d_max)) {
+			    if ( s_distance( s+COLLIDE_LENGTH, car.s) > 0) {
+//				if ( car.s > (s + COLLIDE_LENGTH)) {
+					if ( car.speed < speed ) {
+						double diff_speed = speed - car.speed;
+						if ( s_distance(s+COLLIDE_LENGTH, car.s - diff_speed * SIM_DELTA_T * PREDICTION_NO ) < 0)
+							return true;
+					}
+				} else if (s_distance(s-COLLIDE_LENGTH, car.s) < 0) {
+					if ( car.speed > speed) {
+						double diff_speed = car.speed - speed;
+						if (s_distance( s-COLLIDE_LENGTH, car.s + diff_speed * SIM_DELTA_T * PREDICTION_NO) > 0)
+							return true;
+					}
+
+				} else {
+					return true; // already collide
+				}
 		}
 	}
 	return false;
@@ -479,12 +570,25 @@ std::map<STATE_PATH_PLANNING, vector<NextStateFunc>> next_state_table = {
 };  
 
 void PathPlanner::updateState(void)
-{ if (target_lane < 0) // invalid or intial value
+{ 
+  chrono::high_resolution_clock::time_point current_time_count;
+  if (target_lane < 0) // invalid or intial value
 	 target_lane = ego.lane;
   if (target_lane != ego.lane) { // wait ego go to target lane before change state
   	 prev_state = state;
+  	 // trigger time delay
+     current_time_count = chrono::high_resolution_clock::now(); 
+     next_time_count = current_time_count + chrono::milliseconds(1500); 
      return; // remain current state
   }
+  current_time_count = chrono::high_resolution_clock::now(); 
+  if ( current_time_count >= next_time_count) {
+  	 next_time_count = current_time_count;
+  } else { // delay change state
+  	 prev_state = state;
+	 return;     
+  }
+
   vector<NextStateFunc> next_state_list = next_state_table[state];
   double min_cost = 99999;
   int min_index;
@@ -493,7 +597,7 @@ void PathPlanner::updateState(void)
     cost_function costf = next_state_list[i].func;
 //    double score = std::invoke( costf, this, predictions); // call member function
     double score = (this->*costf)() * next_state_list[i].weight;
-    cout << " state, score: " << next_state_list[i].state << ", " << score << endl;
+    // cout << " state, score: " << next_state_list[i].state << ", " << score << endl;
     if (score < min_cost) {
       min_cost = score;
       min_index = i;
