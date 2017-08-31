@@ -44,7 +44,7 @@ public:
   STATE_PATH_PLANNING prev_state = STATE_START;
   int target_lane = -1;
   double ref_vel = 0.0;
-  const float L = 10; 
+  const float L = 9.0; 
   const double MAX_REF_VELOCITY = 22.05;
   const double SIM_DELTA_T = 0.02;
   const double HORIZON_X = 30;
@@ -87,5 +87,9 @@ private:
   void generate_trajectory( int target_lane, int current_lane,
           vector<double> &map_waypoints_x, vector<double> &map_waypoints_y, vector<double> &map_waypoints_s,
           vector<double> &next_x_vals, vector<double> &next_y_vals);
-
+  bool is_trajectory_safe(int target_lane, vector<double> &next_x_vals, vector<double> &next_y_vals);
 };
+#define DEBUG_LOG
+#ifdef DEBUG_LOG
+extern ofstream debug_output;
+#endif

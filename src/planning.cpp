@@ -5,6 +5,8 @@
 #include "Eigen-3.3/Eigen/LU"
 #include "json.hpp"
 #include "spline.h"
+#include <fstream>
+#include <iostream>
 using namespace std;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -15,6 +17,7 @@ constexpr double rad2deg(double x) { return x * 180 / pi(); }
 constexpr double MPH_to_MPS(double x) { return x * 0.44074; }
 #define MAX_LANE_NO 2
 #define MIN_LANE_NO 0
+double L = 8; // car length
 float LANE_WIDTH = 4.0; 
 float  MAX_S = 6945.554;  
 float MAX_SENSOR_RANGE = 200;
@@ -114,8 +117,10 @@ void PathPlanner::realizeState(
     vector<double> &map_waypoints_x, vector<double> &map_waypoints_y, vector<double> &map_waypoints_s,
 	vector<double> &next_x_vals, vector<double> &next_y_vals)
 {
+#ifdef DEBUG_LOG	
 	if ( prev_state != state)
 	   cout << "realize state: " << state << endl;
+#endif	
 	switch( state) {
 		case STATE_LANE_CHANGE_LEFT:		   
 		   if ( prev_state == STATE_PREPARE_LANE_CHANGE_LEFT)
@@ -123,6 +128,7 @@ void PathPlanner::realizeState(
 		   generate_trajectory(target_lane, ego.lane,
 		   	   map_waypoints_x, map_waypoints_y, map_waypoints_s,
  		   	   next_x_vals, next_y_vals);
+
 		   break;
 		case STATE_LANE_CHANGE_RIGHT:
 		   if ( prev_state == STATE_PREPARE_LANE_CHANGE_RIGHT)
@@ -140,6 +146,22 @@ void PathPlanner::realizeState(
    		   	   next_x_vals, next_y_vals);
 		   break;
 	}
+#ifdef Uses_CHECK_SAFETY	
+	if ((target_lane != ego.lane) && !is_trajectory_safe(target_lane, next_x_vals, next_y_vals))
+	{
+  #ifdef DEBUG_LOG		
+		debug_output << "not safe trajectory. regenerate trajectory" << endl;
+  #endif		
+		next_x_vals.clear();
+		next_y_vals.clear();
+//		if ( target_lane != ego.lane) 
+		{ // turn back to previous lane
+		   generate_trajectory(ego.lane, ego.lane,
+		   	   map_waypoints_x, map_waypoints_y, map_waypoints_s,
+   		   	   next_x_vals, next_y_vals);
+		} 
+	}
+#endif	
 }
 void PathPlanner::generate_trajectory( int target_lane, int current_lane,
    vector<double> &map_waypoints_x, vector<double> &map_waypoints_y, vector<double> &map_waypoints_s,
@@ -160,11 +182,14 @@ void PathPlanner::generate_trajectory( int target_lane, int current_lane,
 	    double check_car_s = front_car.s + prev_size * SIM_DELTA_T * front_car.speed;
 	    if ( s_distance(car_s, check_car_s) < 22) {
 	    	too_close = true;
-		    cout << "too close" << endl;
-	    	cout << "car s, speed=" << front_car.s << setw(10) 
+#ifdef DEBUG_LOG
+
+		    debug_output << "too close" << endl;
+	    	debug_output << "car s, speed=" << front_car.s << setw(10) 
 	    	<< front_car.speed << setw(10) 
 	    	<< front_car.s << setw(10)
 	    	<< front_car.d << setw(10) << endl;
+#endif	    	
 	    }
 	}
 	if (target_lane != current_lane) {
@@ -174,11 +199,14 @@ void PathPlanner::generate_trajectory( int target_lane, int current_lane,
 		    double check_car_s = front_car.s + prev_size * SIM_DELTA_T * front_car.speed;
 		    if ( s_distance(car_s, check_car_s) < 22) {
 		    	too_close = true;
-			    cout << "too close" << endl;
-		    	cout << "car s, speed=" << front_car.s << setw(10) 
+#ifdef DEBUG_LOG
+
+			    debug_output << "too close" << endl;
+		    	debug_output << "car s, speed=" << front_car.s << setw(10) 
 		    	<< front_car.speed << setw(10) 
 		    	<< front_car.s << setw(10)
 		    	<< front_car.d << setw(10) << endl;
+#endif		    	
 		    }
 		}
 	}
@@ -439,33 +467,33 @@ double PathPlanner::distance_cost(int lane, float s)
 }
 bool PathPlanner::collide_prediction(int lane, float s, float speed)
 {
-	const int COLLIDE_LENGTH = 20;
-	const int PREDICTION_NO = 300; // 0.02 * 300 = 6 second
+	const int COLLIDE_LENGTH = 25;
+	const int PREDICTION_NO = 100; // 0.02 * 100 = 2 second
+	double d_min = lane * LANE_WIDTH;
+	double d_max = d_min + LANE_WIDTH;
+	if ( lane != 0)
+		d_min -= 1.5;
+	d_max += 1.5;
 	for (int i = 0; i < vehicle_list.size(); i ++) {
 		Vehicle car = vehicle_list[i];
-		double d_min = lane * LANE_WIDTH;
-		double d_max = d_min + LANE_WIDTH;
-		if ( lane != 0)
-			d_min -= 1.5;
-		d_max += 1.5;
 		if (( car.d > d_min) && (car.d < d_max)) {
-			    if ( s_distance( s+COLLIDE_LENGTH, car.s) > 0) {
+		    if ( s_distance( s+COLLIDE_LENGTH, car.s) > 0) {
 //				if ( car.s > (s + COLLIDE_LENGTH)) {
-					if ( car.speed < speed ) {
-						double diff_speed = speed - car.speed;
-						if ( s_distance(s+COLLIDE_LENGTH, car.s - diff_speed * SIM_DELTA_T * PREDICTION_NO ) < 0)
-							return true;
-					}
-				} else if (s_distance(s-COLLIDE_LENGTH, car.s) < 0) {
-					if ( car.speed > speed) {
-						double diff_speed = car.speed - speed;
-						if (s_distance( s-COLLIDE_LENGTH, car.s + diff_speed * SIM_DELTA_T * PREDICTION_NO) > 0)
-							return true;
-					}
-
-				} else {
-					return true; // already collide
+				if ( car.speed < speed ) {
+					double diff_speed = speed - car.speed;
+					if ( s_distance(s+COLLIDE_LENGTH, car.s - diff_speed * SIM_DELTA_T * PREDICTION_NO ) < 0)
+						return true;
 				}
+			} else if (s_distance(s-COLLIDE_LENGTH, car.s) < 0) {
+				if ( car.speed > speed) {
+					double diff_speed = car.speed - speed;
+					if (s_distance( s-COLLIDE_LENGTH, car.s + diff_speed * SIM_DELTA_T * PREDICTION_NO) > 0)
+						return true;
+				}
+
+			} else {
+				return true; // already collide
+			}
 		}
 	}
 	return false;
@@ -607,3 +635,29 @@ void PathPlanner::updateState(void)
   this->state = next_state_list[min_index].state; // this is an example of how you change state.
 }
 
+bool PathPlanner::is_trajectory_safe(int target_lane, vector<double> &next_x_vals, vector<double> &next_y_vals)
+{
+	extern double distance(double x1, double y1, double x2, double y2);
+
+	int path_size = next_x_vals.size();
+	double d_min = target_lane * LANE_WIDTH;
+	double d_max = d_min + LANE_WIDTH + 1.0;
+	for (int j = 0; j < vehicle_list.size(); j ++) {
+	    Vehicle car = vehicle_list[j];
+	    if (( car.d > d_min) && (car.d < d_max)) {
+		    for( int i = 0; i < path_size; i ++) {
+			   double px = next_x_vals[i];
+			   double py = next_y_vals[i];
+			   double dt = i * SIM_DELTA_T;
+	 		   double cx = car.x + car.vx * dt;
+			   double cy = car.y + car.vy * dt;
+			   if ( distance(px, py, cx, cy) < L) {
+			   	  cout << "cx, cy, px, py, dt = " << cx << setw(10) << cy << setw(10) 
+			   	       << px << setw(10) << py << setw(10) << dt << setw(10) << endl;
+			   	  return false;
+			   }
+			}
+		}
+	}
+	return true;
+}

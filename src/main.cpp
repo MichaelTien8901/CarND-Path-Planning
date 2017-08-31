@@ -10,6 +10,11 @@
 #include "Eigen-3.3/Eigen/LU"
 #include "json.hpp"
 #include "spline.h"
+#define DEBUG_LOG
+#ifdef DEBUG_LOG
+#include <signal.h>
+#endif
+
 using namespace std;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -266,8 +271,22 @@ bool check_collision_safe(vector<double> alpha, double t, double delta_t, double
 #define LANE_WIDTH 4.0
 #define MPH_to_MPS(x) (x*0.44074)
 
+#ifdef DEBUG_LOG
+ofstream debug_output;
+void my_signal_handler(int s)
+{
+  cout << "SIGINT caughted." << endl;
+  debug_output.close();  
+  exit(1);
+}
+#endif
+
 
 int main() {
+#ifdef DEBUG_LOG
+  signal(SIGINT, my_signal_handler);
+  debug_output.open("debug_log.txt");
+#endif
   uWS::Hub h;
 //  chrono::high_resolution_clock::time_point next_time_count = chrono::high_resolution_clock::now();
 
