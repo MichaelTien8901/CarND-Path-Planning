@@ -89,7 +89,7 @@ private:
           vector<double> &next_x_vals, vector<double> &next_y_vals);
   bool is_trajectory_safe(int target_lane, vector<double> &next_x_vals, vector<double> &next_y_vals);
 };
-#define DEBUG_LOG
+//#define DEBUG_LOG
 #ifdef DEBUG_LOG
 extern ofstream debug_output;
 #endif
