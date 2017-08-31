@@ -10,7 +10,6 @@
 #include "Eigen-3.3/Eigen/LU"
 #include "json.hpp"
 #include "spline.h"
-#define DEBUG_LOG
 #ifdef DEBUG_LOG
 #include <signal.h>
 #endif
